@@ -27,7 +27,7 @@ MAX_SUSPICIOUS_IN_ROW = 3          # 3 suspicious attempts in a row -> lock
 keystroke = components.declare_component("keystroke", path="components/keystroke")
 
 st.set_page_config(page_title="Keystroke Continuous Auth", page_icon="⌨️")
-st.title("⌨️ Continuous Authentication (Keystroke Dynamics BD)")
+st.title(" Continuous Authentication (Keystroke Dynamics)")
 st.caption("Public research demo. Only key press/release TIMINGS are sent to the server, "
            "never the characters. Still, please use a made-up password, not a real one.")
 
