@@ -1,0 +1,10 @@
+Deploy to Azure App Service (Linux, Python 3.11, B1 plan)
+1. Install Azure CLI, then:  az login
+2. Open a terminal INSIDE this folder.
+3. Edit APP= in the script to a unique name, then run:
+     Windows PowerShell:  .\deploy_azure.ps1
+     Mac/Linux:           bash deploy_azure.sh
+4. Open https://<APP>.azurewebsites.net (first start takes 2-5 minutes)
+Update later:   az webapp up -n <APP> -g keystroke-rg
+Logs:           az webapp log tail -n <APP> -g keystroke-rg
+Stop paying:    az group delete -n keystroke-rg

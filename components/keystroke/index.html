@@ -1,0 +1,38 @@
+<!doctype html>
+<html><body style="margin:0;font-family:sans-serif">
+<input id="box" type="password" autocomplete="off" autofocus
+       style="font-size:18px;width:96%;padding:8px;border:2px solid #4a7;border-radius:6px"
+       placeholder="Type your password here, then press Enter">
+<script>
+// Minimal Streamlit custom component (no build step).
+const send = (type, data) =>
+  window.parent.postMessage(Object.assign({isStreamlitMessage: true, type: type}, data), "*");
+send("streamlit:componentReady", {apiVersion: 1});
+send("streamlit:setFrameHeight", {height: 56});
+
+const box = document.getElementById("box");
+let events = [];      // finished keys: {d, u}  (times in ms, performance.now())
+let open = {};        // keys currently held down
+let bad = false;      // Backspace / paste -> attempt is invalid
+
+box.addEventListener("keydown", e => {
+  if (e.key === "Shift" || e.key === "CapsLock" || e.key === "Control" || e.key === "Alt") return;
+  if (e.repeat) return;
+  if (e.key === "Backspace" || e.key === "Delete") bad = true;
+  if (e.key === "Enter") {
+    send("streamlit:setComponentValue", {
+      value: {events: events, bad: bad, t: Date.now()}, dataType: "json"});
+    events = []; open = {}; bad = false; box.value = "";
+    return;
+  }
+  open[e.code] = performance.now();
+});
+box.addEventListener("keyup", e => {
+  if (e.code in open) {
+    // only timings leave the browser - never WHICH key (so the password is never sent)
+    events.push({d: open[e.code], u: performance.now()});
+    delete open[e.code];
+  }
+});
+box.addEventListener("paste", e => { e.preventDefault(); bad = true; });
+</script></body></html>

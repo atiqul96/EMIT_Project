@@ -1,7 +1,11 @@
 """Streamlit prototype: keystroke-based continuous authentication.
 Run:  streamlit run app.py
 """
+import csv
+import os
+import re
 import time
+from datetime import datetime
 from pathlib import Path
 
 import joblib
@@ -13,14 +17,19 @@ import streamlit.components.v1 as components
 from features import events_to_features
 from model import fit_profile, score, tier
 
-PROFILE_DIR = Path("profiles")
-PROFILE_DIR.mkdir(exist_ok=True)
+DATA_DIR = Path(os.environ.get("DATA_DIR", "."))   # on Azure set DATA_DIR=/home/data (survives restarts)
+PROFILE_DIR = DATA_DIR / "profiles"
+PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+LOG_FILE = DATA_DIR / "logs" / "live_log.csv"   # every live attempt is recorded here for the report
+LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 MAX_SUSPICIOUS_IN_ROW = 3          # 3 suspicious attempts in a row -> lock
 
 keystroke = components.declare_component("keystroke", path="components/keystroke")
 
 st.set_page_config(page_title="Keystroke Continuous Auth", page_icon="⌨️")
-st.title("⌨️ Continuous Authentication (Keystroke Dynamics)")
+st.title("⌨️ Continuous Authentication (Keystroke Dynamics BD)")
+st.caption("Public research demo. Only key press/release TIMINGS are sent to the server, "
+           "never the characters. Still, please use a made-up password, not a real one.")
 
 ss = st.session_state
 ss.setdefault("enroll_rows", [])
@@ -54,7 +63,13 @@ page = st.sidebar.radio("Page", ["1. Enroll", "2. Live session"])
 # ------------------------------------------------------------------ ENROLL
 if page == "1. Enroll":
     st.subheader("Enroll: retype your password 5-15 times (15 is more accurate)")
-    user_id = st.text_input("User ID").strip()
+    raw_id = st.text_input("User ID (letters, digits, _ or -)").strip()
+    user_id = re.sub(r"[^A-Za-z0-9_-]", "", raw_id)[:30]   # safe file name
+    if raw_id and raw_id != user_id:
+        st.info(f"User ID will be saved as '{user_id}'.")
+    taken = bool(user_id) and (PROFILE_DIR / f"live_{user_id}.joblib").exists()
+    if taken:
+        st.error(f"'{user_id}' is already taken - choose another User ID.")
     st.caption("Use a fixed password of 6-12 characters, lowercase letters/digits only "
                "(no Shift, no Backspace). Type it the way you normally do.")
     feats = read_attempt("enroll_box", ss.enroll_len)
@@ -68,7 +83,7 @@ if page == "1. Enroll":
 
     st.progress(min(len(ss.enroll_rows) / 15, 1.0), text=f"{len(ss.enroll_rows)} / 15 attempts (min 5)")
     c1, c2 = st.columns(2)
-    if c1.button("Train profile", disabled=len(ss.enroll_rows) < 5 or not user_id):
+    if c1.button("Train profile", disabled=len(ss.enroll_rows) < 5 or not user_id or taken):
         prof = fit_profile(np.array(ss.enroll_rows))
         prof["password_len"] = ss.enroll_len
         joblib.dump(prof, PROFILE_DIR / f"live_{user_id}.joblib")
@@ -85,6 +100,8 @@ else:
     if not users:
         st.info("No profile yet. Enroll first.")
         st.stop()
+    st.caption("Pick your own profile to test yourself, or pick a friend's profile and "
+               "try to impersonate them (hijack test).")
     user_id = st.selectbox("Logged-in user", users)
     prof = joblib.load(PROFILE_DIR / f"live_{user_id}.joblib")
 
@@ -97,6 +114,9 @@ else:
 
     st.write("Keep typing your password again and again (re-verification). "
              "Let a friend type it to simulate a hijack.")
+    typist = st.radio("Who is typing now? (test label, only saved to the log)",
+                      ["Genuine", "Impostor"], horizontal=True)
+    tester = st.text_input("Typist name (e.g. impostor_rahim)", value=user_id)
     feats = read_attempt("live_box", prof["password_len"])
     if feats is not None:
         s = score(prof, feats)
@@ -105,6 +125,15 @@ else:
         if t == "SUSPICIOUS" and ss.susp_run >= MAX_SUSPICIOUS_IN_ROW:
             t = "LOCKED"
         ss.history.append((s, t))
+        new = not LOG_FILE.exists()
+        with LOG_FILE.open("a", newline="") as f:
+            w = csv.writer(f)
+            if new:
+                w.writerow(["time", "user", "typist", "tester", "attempt", "score",
+                            "tier", "t_susp", "t_lock"])
+            w.writerow([datetime.now().isoformat(timespec="seconds"), user_id, typist,
+                        tester, len(ss.history), round(s, 4), t,
+                        round(prof["t_susp"], 4), round(prof["t_lock"], 4)])
         if t == "LOCKED":
             ss.locked = True
         st.rerun()
