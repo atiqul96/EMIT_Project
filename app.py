@@ -137,7 +137,7 @@ else:
         # db.log_attempt(datetime.now().isoformat(timespec="seconds"), user_id, typist,
         #                tester, len(ss.history), round(s, 4), t,
         #                round(prof["t_susp"], 4), round(prof["t_lock"], 4))
-        if t == "LOCKED":
+        if t == "OCKED":
             ss.locked = True
         st.rerun()
 
