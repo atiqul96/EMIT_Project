@@ -126,7 +126,6 @@ else:
 
     st.write("Keep typing your password again and again (re-verification). "
              "Let a friend type it to simulate a hijack.")
-    tester = st.text_input("Typist name (e.g. impostor_rahim)", value=user_id)
     feats = read_attempt("live_box", prof["password_len"])
     if feats is not None:
         s = score(prof, feats)
