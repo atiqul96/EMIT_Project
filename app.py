@@ -134,9 +134,9 @@ else:
         if t == "SUSPICIOUS" and ss.susp_run >= MAX_SUSPICIOUS_IN_ROW:
             t = "LOCKED"
         ss.history.append((s, t))
-        db.log_attempt(datetime.now().isoformat(timespec="seconds"), user_id, typist,
-                       tester, len(ss.history), round(s, 4), t,
-                       round(prof["t_susp"], 4), round(prof["t_lock"], 4))
+        # db.log_attempt(datetime.now().isoformat(timespec="seconds"), user_id, typist,
+        #                tester, len(ss.history), round(s, 4), t,
+        #                round(prof["t_susp"], 4), round(prof["t_lock"], 4))
         if t == "LOCKED":
             ss.locked = True
         st.rerun()
