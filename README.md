@@ -10,8 +10,12 @@ Files: features.py (hold/digraph/trigraph) | model.py (OCSVM + thresholds + tier
 
 Deploy (public web, free): push this folder to a GitHub repo, then on
 share.streamlit.io -> Create app -> pick the repo, branch main, file app.py -> Deploy.
-Only key timings are sent to the server (never which keys). Profiles live in
-profiles/ on the server and are wiped when the app restarts.
+Then add TURSO_DATABASE_URL and TURSO_AUTH_TOKEN under the app's Settings -> Secrets.
+Only key timings are sent to the server (never which keys).
+
+Storage: enrolled profiles and the live attempt log are kept in Turso, so they survive
+restarts. Locally, copy .streamlit/secrets.toml.example to .streamlit/secrets.toml and
+fill it in (that file is git-ignored; never commit the token).
 
 Azure: see AZURE.txt
 

@@ -1,28 +1,22 @@
 """Streamlit prototype: keystroke-based continuous authentication.
 Run:  streamlit run app.py
 """
-import csv
-import os
 import re
 import time
 from datetime import datetime
-from pathlib import Path
 
-import joblib
 import numpy as np
 import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
+import db
 from features import events_to_features
 from model import fit_profile, score, tier
 
-DATA_DIR = Path(os.environ.get("DATA_DIR", "."))   # on Azure set DATA_DIR=/home/data (survives restarts)
-PROFILE_DIR = DATA_DIR / "profiles"
-PROFILE_DIR.mkdir(parents=True, exist_ok=True)
-LOG_FILE = DATA_DIR / "logs" / "live_log.csv"   # every live attempt is recorded here for the report
-LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-MAX_SUSPICIOUS_IN_ROW = 3          # 3 suspicious attempts in a row -> lock
+MAX_SUSPICIOUS_IN_ROW = 3         # 3 suspicious attempts in a row -> lock
+MAX_EMAIL_LEN = 100
+EMAIL_RE = re.compile(r"[a-z0-9_%+-]+(\.[a-z0-9_%+-]+)*@([a-z0-9]+(-+[a-z0-9]+)*\.)+[a-z]{2,}")
 
 keystroke = components.declare_component("keystroke", path="components/keystroke")
 
@@ -30,6 +24,25 @@ st.set_page_config(page_title="Keystroke Continuous Auth", page_icon="⌨️")
 st.title(" Continuous Authentication (Keystroke Dynamics)")
 st.caption("Public research demo. Only key press/release TIMINGS are sent to the server, "
            "never the characters. Still, please use a made-up password, not a real one.")
+
+
+@st.cache_resource(show_spinner=False)
+def connect_db():
+    db.init_schema()
+
+
+@st.cache_resource(show_spinner="Loading profile...")
+def load_profile(email):
+    """Rebuild the model from the stored timings (fit_profile is deterministic)."""
+    rows, password_len = db.load_enrollment(email)
+    return {**fit_profile(np.array(rows)), "password_len": password_len}
+
+
+try:
+    connect_db()
+except Exception as e:
+    st.error(f"Could not reach the database: {e}")
+    st.stop()
 
 ss = st.session_state
 ss.setdefault("enroll_rows", [])
@@ -63,18 +76,19 @@ page = st.sidebar.radio("Page", ["1. Enroll", "2. Live session"])
 # ------------------------------------------------------------------ ENROLL
 if page == "1. Enroll":
     st.subheader("Enroll: retype your password 5-15 times (15 is more accurate)")
-    raw_id = st.text_input("User ID (letters, digits, _ or -)").strip()
-    user_id = re.sub(r"[^A-Za-z0-9_-]", "", raw_id)[:30]   # safe file name
-    if raw_id and raw_id != user_id:
-        st.info(f"User ID will be saved as '{user_id}'.")
-    taken = bool(user_id) and (PROFILE_DIR / f"live_{user_id}.joblib").exists()
+    raw_email = st.text_input("Email", placeholder="name@example.com").strip().lower()
+    valid = len(raw_email) <= MAX_EMAIL_LEN and EMAIL_RE.fullmatch(raw_email)
+    user_id = raw_email if valid else ""
+    if raw_email and not valid:
+        st.error("Enter a valid email address, e.g. name@example.com.")
+    taken = bool(user_id) and db.profile_exists(user_id)
     if taken:
-        st.error(f"'{user_id}' is already taken - choose another User ID.")
+        st.error(f"'{user_id}' is already enrolled - use another email.")
     st.caption("Use a fixed password of 6-12 characters, lowercase letters/digits only "
                "(no Shift, no Backspace). Type it the way you normally do.")
     feats = read_attempt("enroll_box", ss.enroll_len)
     if feats is not None and not user_id:
-        st.warning("Enter a User ID first, then retype.")
+        st.warning("Enter a valid email first, then retype.")
     elif feats is not None:
         if ss.enroll_len is None:
             ss.enroll_len = (len(feats) + 4) // 4      # features = 4n - 4 for n keys
@@ -84,9 +98,7 @@ if page == "1. Enroll":
     st.progress(min(len(ss.enroll_rows) / 15, 1.0), text=f"{len(ss.enroll_rows)} / 15 attempts (min 5)")
     c1, c2 = st.columns(2)
     if c1.button("Train profile", disabled=len(ss.enroll_rows) < 5 or not user_id or taken):
-        prof = fit_profile(np.array(ss.enroll_rows))
-        prof["password_len"] = ss.enroll_len
-        joblib.dump(prof, PROFILE_DIR / f"live_{user_id}.joblib")
+        db.save_profile(user_id, np.array(ss.enroll_rows).tolist(), ss.enroll_len)
         ss.enroll_rows, ss.enroll_len = [], None
         st.success(f"Profile saved for '{user_id}'. Go to '2. Live session'.")
     if c2.button("Reset attempts"):
@@ -96,14 +108,14 @@ if page == "1. Enroll":
 # ------------------------------------------------------------------ LIVE
 else:
     st.subheader("Live session")
-    users = sorted(p.stem[5:] for p in PROFILE_DIR.glob("live_*.joblib"))
+    users = db.list_users()
     if not users:
         st.info("No profile yet. Enroll first.")
         st.stop()
     st.caption("Pick your own profile to test yourself, or pick a friend's profile and "
                "try to impersonate them (hijack test).")
     user_id = st.selectbox("Logged-in user", users)
-    prof = joblib.load(PROFILE_DIR / f"live_{user_id}.joblib")
+    prof = load_profile(user_id)
 
     if ss.locked:
         st.error("🔴 SESSION LOCKED - possible hijack. Session terminated.")
@@ -125,15 +137,9 @@ else:
         if t == "SUSPICIOUS" and ss.susp_run >= MAX_SUSPICIOUS_IN_ROW:
             t = "LOCKED"
         ss.history.append((s, t))
-        new = not LOG_FILE.exists()
-        with LOG_FILE.open("a", newline="") as f:
-            w = csv.writer(f)
-            if new:
-                w.writerow(["time", "user", "typist", "tester", "attempt", "score",
-                            "tier", "t_susp", "t_lock"])
-            w.writerow([datetime.now().isoformat(timespec="seconds"), user_id, typist,
-                        tester, len(ss.history), round(s, 4), t,
-                        round(prof["t_susp"], 4), round(prof["t_lock"], 4)])
+        db.log_attempt(datetime.now().isoformat(timespec="seconds"), user_id, typist,
+                       tester, len(ss.history), round(s, 4), t,
+                       round(prof["t_susp"], 4), round(prof["t_lock"], 4))
         if t == "LOCKED":
             ss.locked = True
         st.rerun()

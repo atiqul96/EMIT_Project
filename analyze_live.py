@@ -1,4 +1,4 @@
-"""Summarise live hijack tests from logs/live_log.csv.
+"""Summarise live hijack tests from the attempts table in Turso.
 Usage: python analyze_live.py
 
 Genuine attempts  -> live FRR (how often the real user was flagged) and false locks.
@@ -7,8 +7,9 @@ Impostor attempts -> detection rate, and how many attempts it took to LOCK each 
 """
 import pandas as pd
 
-import os
-df = pd.read_csv(os.path.join(os.environ.get("DATA_DIR", "."), "logs", "live_log.csv"))
+import db
+
+df = pd.DataFrame(db.fetch_attempts(), columns=db.LOG_COLUMNS)
 g = df[df.typist == "Genuine"]
 i = df[df.typist == "Impostor"]
 
