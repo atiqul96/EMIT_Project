@@ -1,8 +1,4 @@
-"""Feature engineering: hold, digraph (DD/UD) and trigraph timing.
 
-Same formulas are used for the CMU CSV (offline) and for live keystrokes,
-so a model trained on one kind of data is scored with identical features.
-"""
 import pandas as pd
 
 
