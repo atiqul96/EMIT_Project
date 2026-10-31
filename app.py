@@ -113,7 +113,7 @@ else:
         st.info("No profile yet. Enroll first.")
         st.stop()
     st.caption("Pick your own profile to test yourself, or pick a friend's profile and "
-               "try to impersonate them (hijack test).")
+               "try to impersonate them.")
     user_id = st.selectbox("Logged-in user", users)
     prof = load_profile(user_id)
 
